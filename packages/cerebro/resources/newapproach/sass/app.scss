@@ -1,0 +1,119 @@
+// @import "tailwindcss/base";
+// @import "tailwindcss/components";
+// @import "tailwindcss/utilities";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@import "datatables.net-dt";
+
+.dataTables_wrapper {
+    .dataTables_length select {
+        @apply w-[70px] border border-gray-300 rounded-md;
+    }
+
+    input[type=search] {
+        @apply w-full border border-gray-300 rounded-md;
+    }
+
+    input[type='search']::-webkit-search-cancel-button {
+        @apply text-gray-500 hover:text-gray-700;
+    }
+
+    .dataTables_processing {
+        top: 65%;
+    }
+}
+
+.blur-block {
+    filter: blur(5px);
+}
+
+.bootstrap-5 {
+    .badge {
+        display: inline-block;
+        padding: 0.5em 1em;
+        font-weight: 500;
+        line-height: 1;
+        text-align: center;
+        white-space: nowrap;
+        vertical-align: baseline;
+        border-radius: 0.5rem;
+        background-color: #e0e0e0;
+        min-width: 8em;
+    }
+
+    .bg-success {
+        background-color: #198754;
+    }
+
+    .bg-danger {
+        background-color: #dc3545;
+    }
+
+    .bg-warning {
+        background-color: #ffc107;
+    }
+    .text-dark {
+        color: #212529;
+    }
+}
+
+.editable-block {
+    border: 5px solid orange !important;
+}
+
+.settings-panel {
+    button {
+        white-space: nowrap;
+    }
+}
+
+// Color picker CSS styles
+.color-input.user .box {
+    height: 35px;
+    width: 35px;
+    border-radius: 5px
+}
+
+.color-input.user .box.active {}
+
+.color-input.user .box.active .inner {
+	transform: scale(.9) rotate(90deg);
+}
+
+.color-input.user .box.disabled {}
+
+.color-input.user .picker-popup {
+    min-width: 280px;
+}
+
+.color-input.user .slider {}
+
+.color-input.user .slider-pointer {}
+
+.color-input.user .saturation-pointer {}
+
+.color-input.user .picker-popup-enter-from,
+.color-input.user .picker-popup-leave-to {}
+
+.color-input.user .picker-popup-enter-active,
+.color-input.user .picker-popup-leave-active {}
+.color-input .text-input {
+    width: 6ch;
+}
+
+.color-input {
+    .color {
+        border: #dedede 1px solid;
+        border-radius: 5px;
+    }
+}
+
+main {
+    width: 85vw;
+    min-width: 95%;
+}
+
+.iframe-wrap {
+    height: calc(100% - 141px);
+}

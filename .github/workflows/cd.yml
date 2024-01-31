@@ -1,0 +1,374 @@
+name: CD
+on:
+  workflow_dispatch:
+    inputs:
+      runTests:
+        description: Run tests
+        type: boolean
+        default: true
+      runRefresh:
+        description: Run instance refresh
+        type: boolean
+        default: false
+      runKics:
+        description: Run KICS scan
+        type: boolean
+        default: false
+      runPhpmd:
+        description: Run PHP Mess Detector
+        type: boolean
+        default: false
+      runTruffleHog:
+        description: Run leaked credentials scan
+        type: boolean
+        default: false
+      runRefreshDebug:
+        description: Debug mode for instance refresh
+        type: boolean
+        default: false
+  push:
+    paths-ignore:
+      - README.md
+    branches:
+      - "main"
+      - "dev"
+      - "release"
+
+env:
+  SERVICE_NAME: "dnm-api1"
+  ECR_REPOSITORY_NAME: "dnm-api"
+  ACTIONS_REPOSITORY: "cerebro-CICD"
+  ECR_REGISTRY: "015542050545.dkr.ecr.us-east-1.amazonaws.com"
+
+jobs:
+  init:
+    name: Initialize CD for ${{ github.ref_name }}
+    runs-on: [self-hosted]
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+
+      - name: Short Sha
+        id: short-sha
+        run: echo "short-sha=${GITHUB_SHA:0:10}" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Set Environment host
+        id: set-environment-host
+        run: |-
+          if [[ "${{ github.ref_name }}" == "dev" ]]; then
+            echo "result=cerebrohub.smissltd.com" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "result=cerebrohub.com" >> $GITHUB_OUTPUT
+          else
+            echo "result=cerebrohub.smissltd.com" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Print Environment host
+        id: print-environment-host
+        run: echo "Working environment is '${{ steps.set-environment-host.outputs.result }}'"
+        shell: bash
+
+      - name: Set Environment
+        id: set-environment
+        run: |-
+          if [[ "${{ github.ref_name }}" == "dev" ]]; then
+            echo "result=dev" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "result=prod" >> $GITHUB_OUTPUT
+          else
+            echo "result=dev" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Print Environment
+        id: print-environment
+        run: echo "Working environment is '${{ steps.set-environment.outputs.result }}'"
+        shell: bash
+
+    outputs:
+      short-sha: ${{ steps.short-sha.outputs.short-sha }}
+      environment: ${{ steps.set-environment.outputs.result }}
+      environment-host: ${{ steps.set-environment-host.outputs.result }}
+
+  terraform-lint:
+    name: Terraform Lint
+    runs-on: [self-hosted]
+    timeout-minutes: 5
+    needs: [init]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+
+      - name: Checkout actions repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{ env.ACTIONS_REPOSITORY }}
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+          path: actions_repository
+          fetch-depth: 0
+
+      - name: Run terraform lint
+        uses: ./actions_repository/actions/terraform_lint
+        with:
+          global_github_token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+
+  scan:
+    name: Checkmarx KICS
+    runs-on: [self-hosted]
+    needs: [init]
+    timeout-minutes: 5
+    if: |
+      inputs.runKics == true || 
+      (github.event_name == 'push' && github.ref_name == 'main')
+    permissions:
+      contents: read # for actions/checkout to fetch code
+      issues: write # for checkmarx/kics-github-action to write feedback to github issues
+      pull-requests: write # for checkmarx/kics-github-action to write feedback to PR
+      security-events: write # for github/codeql-action/upload-sarif to upload report for CodeQL/Security Alerts
+      actions: read # only required for a private repository by github/codeql-action/upload-sarif to get the Action run status
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout actions repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{ env.ACTIONS_REPOSITORY }}
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+          path: actions_repository
+          fetch-depth: 0
+
+      - name: Run kics scan
+        uses: ./actions_repository/actions/scan
+        with:
+          path: terraform
+
+  phpmd:
+    name: PHPMD
+    runs-on: [self-hosted]
+    needs: [init]
+    timeout-minutes: 5
+    if: |
+      inputs.runPhpmd == true || 
+      (github.event_name == 'push' && github.ref_name == 'main')
+    permissions:
+      contents: read # for checkout to fetch code
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout actions repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{ env.ACTIONS_REPOSITORY }}
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+          path: actions_repository
+          fetch-depth: 0
+
+      - name: Run PHPMD
+        uses: ./actions_repository/actions/phpmd
+        with:
+          path: "packages/cerebro"
+
+  trufflehog:
+    name: TruffleHog OSS
+    runs-on: [self-hosted]
+    needs: [init]
+    timeout-minutes: 5
+    if: |
+      inputs.runTruffleHog == true || 
+      (github.event_name == 'push' && github.ref_name == 'main')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout actions repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{ env.ACTIONS_REPOSITORY }}
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+          path: actions_repository
+          fetch-depth: 0
+
+      - name: Run TruffleHog OSS
+        uses: ./actions_repository/actions/trufflehog
+
+  docker-build-and-publish:
+    name: Docker Build and Publish
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - runner: runner-arm64
+            platform: linux/arm64
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    needs: [init, terraform-lint]
+    env:
+      AWS_REGION: us-east-1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+
+      - name: Checkout actions repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{ env.ACTIONS_REPOSITORY }}
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+          path: actions_repository
+          fetch-depth: 0
+
+      - name: Docker Build and push to local
+        if: |
+          inputs.runTests == true || 
+          (github.event_name == 'push' && github.ref_name == 'main')
+        uses: ./actions_repository/actions/docker
+        with:
+          github_repo: ${{ github.event.repository.name }}
+          github_sha: ${{ needs.init.outputs.short-sha }}
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          ecr_registry: "${{ env.ECR_REGISTRY }}"
+          image_name: "${{ env.ECR_REPOSITORY_NAME }}"
+          test_container_name: "${{ env.SERVICE_NAME }}-test"
+          service_name: "${{ env.SERVICE_NAME }}"
+          environment: "${{ needs.init.outputs.environment }}"
+          push: false
+          dockerhub_username: "${{ secrets.DOCKERHUB_USERNAME }}"
+          dockerhub_token: "${{ secrets.DOCKERHUB_TOKEN }}"
+          platform: ${{ matrix.platform }}
+          arch: ${{ matrix.arch }}
+
+      - name: Tests
+        if: ${{ inputs.runTests == true }}
+          # || (github.event_name == 'push' && github.ref_name == 'main') should be added when there are stable tests
+        uses: ./actions_repository/actions/tests
+        continue-on-error: true # should be removed when there are stable tests
+        with:
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          test_container_name: "${{ env.SERVICE_NAME }}-test"
+          test_network_name: "${{ env.SERVICE_NAME }}-test-network"
+          service_name: "${{ env.SERVICE_NAME }}"
+          environment: "${{ needs.init.outputs.environment }}"
+          run_unit_tests: true
+          run_e2e_tests: true
+
+      - name: Docker Build and push
+        uses: ./actions_repository/actions/docker
+        with:
+          github_repo: ${{ github.event.repository.name }}
+          github_sha: ${{ needs.init.outputs.short-sha }}
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          ecr_registry: "${{ env.ECR_REGISTRY }}"
+          image_name: "${{ env.ECR_REPOSITORY_NAME }}"
+          service_name: "${{ env.SERVICE_NAME }}"
+          environment: "${{ needs.init.outputs.environment }}"
+          dockerhub_username: "${{ secrets.DOCKERHUB_USERNAME }}"
+          dockerhub_token: "${{ secrets.DOCKERHUB_TOKEN }}"
+          platform: ${{ matrix.platform }}
+          arch: ${{ matrix.arch }}
+
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: [self-hosted]
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+      deployments: write
+    needs: [docker-build-and-publish, init, terraform-lint]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+
+      - name: Checkout actions repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{ env.ACTIONS_REPOSITORY }}
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+          path: actions_repository
+          fetch-depth: 0
+
+      - name: Terraform Apply
+        uses: ./actions_repository/actions/terraform
+        env:
+          TF_VAR_container_image_url: "${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY_NAME }}"
+          TF_VAR_image_tag: "${{ needs.init.outputs.environment }}-${{ needs.init.outputs.short-sha }}"
+          TF_VAR_commit_hash: ${{ needs.init.outputs.short-sha }}
+        with:
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          global_github_token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+          tf_directory: terraform/main
+          tf_init_command: "terraform init -upgrade -backend-config ../config/${{ needs.init.outputs.environment }}/config.remote"
+          tf_plan_command: "terraform plan -var-file ../config/${{ needs.init.outputs.environment }}/terraform.tfvars -out plan.tfout"
+          tf_apply: true
+
+  refresh:
+    name: Refresh ASG on ${{ github.ref_name }}
+    runs-on: [self-hosted]
+    timeout-minutes: 20
+    if: |
+      inputs.runRefresh == true ||
+      (github.event_name == 'push' && github.ref_name == 'dev') ||
+      (github.event_name == 'push' && github.ref_name == 'release')
+    permissions:
+      id-token: write
+      contents: read
+      deployments: write
+    needs: [docker-build-and-publish, init, terraform-lint, terraform-apply]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+
+      - name: Checkout actions repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{ env.ACTIONS_REPOSITORY }}
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+          path: actions_repository
+          fetch-depth: 0
+
+      - name: Refresh ASG
+        uses: ./actions_repository/actions/refresh
+        with:
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          service_name: "${{ env.SERVICE_NAME }}"
+          environment: ${{ needs.init.outputs.environment }}
+          path: actions_repository
+          mode: ${{ inputs.runRefreshDebug || 'false' }}
+
+  validate-deployment:
+    name: Validate Deployment
+    runs-on: [self-hosted]
+    timeout-minutes: 10
+    needs: [init, refresh]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate Deployment
+        run: |-
+          sleep 5
+          apt-get update && apt-get install -y curl jq
+          sh scripts/validate-deployment.sh "${{ needs.init.outputs.environment-host }}/health" "${{ needs.init.outputs.short-sha }}"
+        shell: sh

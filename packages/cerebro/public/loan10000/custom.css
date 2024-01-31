@@ -1,0 +1,16 @@
+
+body::-webkit-scrollbar {
+    width: 0px;
+}
+
+body {
+    scrollbar-width: none;
+}
+
+body {
+    overflow-y: scroll;
+}
+
+#EE_header {
+    position: unset !important;
+}

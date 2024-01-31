@@ -1,0 +1,115 @@
+name: Refresh ASG
+run-name: Refresh ASG with ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Debug mode
+        type: boolean
+        default: false
+
+env:
+  SERVICE_NAME: "dnm-api1"
+  ACTIONS_REPOSITORY: "cerebro-CICD"
+
+jobs:
+  init:
+    runs-on: [self-hosted]
+    timeout-minutes: 5
+    name: Initialize Build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+
+      - name: Short Sha
+        id: short-sha
+        run: echo "short-sha=${GITHUB_SHA:0:10}" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Set Environment host
+        id: set-environment-host
+        run: |-
+          if [[ "${{ github.ref_name }}" == "dev" ]]; then
+            echo "result=lendingsource.smissltd.com" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "result=lendingsource.com" >> $GITHUB_OUTPUT
+          else
+            echo "result=lendingsource.smissltd.com" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Print Environment host
+        id: print-environment-host
+        run: echo "Working environment is '${{ steps.set-environment-host.outputs.result }}'"
+        shell: bash
+
+      - name: Set Environment
+        id: set-environment
+        run: |-
+          if [[ "${{ github.ref_name }}" == "dev" ]]; then
+            echo "result=dev" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "result=prod" >> $GITHUB_OUTPUT
+          else
+            echo "result=dev" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+    outputs:
+      short-sha: ${{ steps.short-sha.outputs.short-sha }}
+      environment: ${{ steps.set-environment.outputs.result }}
+      environment-host: ${{ steps.set-environment-host.outputs.result }}      
+
+  refresh:
+    name: Refresh ASG on ${{ github.ref_name }}
+    runs-on: [self-hosted]
+    needs: [init]
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+      deployments: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+
+      - name: Checkout actions repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{ env.ACTIONS_REPOSITORY }}
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+          path: actions_repository
+          fetch-depth: 0
+
+      - name: Refresh ASG
+        uses: ./actions_repository/actions/refresh
+        with:
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          service_name: "${{ env.SERVICE_NAME }}"
+          environment: ${{ needs.init.outputs.environment }}
+          path: actions_repository
+          mode: ${{ inputs.mode }}
+
+  # TODO: fix missing host and SHA        
+  # validate-deployment:
+  #   name: Validate Deployment
+  #   runs-on: [self-hosted]
+  #   timeout-minutes: 10
+  #   needs: [init, refresh]
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #       with:
+  #         fetch-depth: 0
+  #     - name: Validate Deployment
+  #       run: |-
+  #         sleep 5
+  #         apt-get update && apt-get install -y curl jq
+  #         sh scripts/validate-deployment.sh "${{ needs.init.outputs.environment-host }}/health" "${{ needs.init.outputs.short-sha }}"
+  #       shell: sh

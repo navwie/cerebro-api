@@ -1,0 +1,12 @@
+/mysql_files/
+.idea/*
+node_modules
+.env
+/cerebro/public/js/app.js
+/cerebro/public/js/app.js.LICENSE.txt
+/cerebro/public/css/app.css
+/cerebro/.ssh/
+/*.key
+/*.pub
+/cerebro.conf
+backup

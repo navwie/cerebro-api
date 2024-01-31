@@ -1,0 +1,28 @@
+
+body::-webkit-scrollbar {
+    width: 0px;
+}
+
+body {
+    scrollbar-width: none;
+}
+
+body {
+    overflow-y: scroll;
+}
+
+.GSC_home {
+    margin-top:90px;
+}
+
+.menu-container {
+    width: 700px !important;
+}
+
+#EE_header {
+    position: relative !important;
+}
+
+#slider {
+    margin-top: -70px !important;
+}

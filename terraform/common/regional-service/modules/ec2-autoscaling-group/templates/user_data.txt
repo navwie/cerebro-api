@@ -1,0 +1,215 @@
+Content-Type: multipart/mixed; boundary="//"
+MIME-Version: 1.0
+
+--//
+Content-Type: text/cloud-config; charset="us-ascii"
+MIME-Version: 1.0
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment; filename="cloud-config.txt"
+
+#cloud-config
+package_update: true
+package_upgrade: false
+
+ssh_genkeytypes: [ed25519]
+
+runcmd:
+  - echo "cloud-init run completed on $(date)"
+
+cloud_final_modules:
+  - [scripts-user, always]
+
+--//
+Content-Type: text/x-shellscript; charset="us-ascii"
+MIME-Version: 1.0
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment; filename="user_data.sh"
+
+#!/bin/bash
+
+set -o pipefail
+
+MAX_RETRY=5
+ATTEMPT_TIMEOUT=10
+AWS_ECR_REGION="us-east-1"
+DOCKER_SERVICE_NAME="api"
+DEFAULT_USER="admin"
+ENV_FILE_PATH="/home/$DEFAULT_USER/.env"
+COMPOSE_FILE_PATH="/home/$DEFAULT_USER/docker-compose.yml"
+
+function get_token {
+    curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"
+}
+
+function get_instance_id {
+    curl -s -H "X-aws-ec2-metadata-token: $AWS_TOKEN" http://169.254.169.254/latest/meta-data/instance-id
+}
+
+function get_asg_name {
+    aws autoscaling describe-auto-scaling-instances \
+        --region ${AWS_DEFAULT_REGION} \
+        --instance-ids $AWS_INSTANCE_ID \
+        --query 'AutoScalingInstances[].AutoScalingGroupName' \
+        --output text
+}
+
+function complete_lifecycle {
+    local lifecycle_hook_name="init"
+
+    for i in $(seq 1 $MAX_RETRY); do
+        aws autoscaling complete-lifecycle-action \
+            --lifecycle-hook-name $lifecycle_hook_name \
+            --auto-scaling-group-name $AWS_ASG_NAME \
+            --lifecycle-action-result "CONTINUE" \
+            --instance-id $AWS_INSTANCE_ID \
+            --region ${AWS_DEFAULT_REGION}
+        result=$?
+        if [[ $result -eq 0 ]]; then
+            echo "complete lifecycle action successful attempt"
+            break
+        else
+            echo "complete lifecycle action unsuccessful attempt"
+            sleep $ATTEMPT_TIMEOUT
+        fi
+    done
+}
+
+function abandon_lifecycle {
+    local lifecycle_hook_name="init"
+
+    for i in $(seq 1 $MAX_RETRY); do
+        aws autoscaling complete-lifecycle-action \
+            --lifecycle-hook-name $lifecycle_hook_name \
+            --auto-scaling-group-name $AWS_ASG_NAME \
+            --lifecycle-action-result "ABANDON" \
+            --instance-id $AWS_INSTANCE_ID \
+            --region ${AWS_DEFAULT_REGION}
+        result=$?
+        if [[ $result -eq 0 ]]; then
+            echo "abandon lifecycle action successful attempt"
+            break
+        else
+            echo "abandon lifecycle action unsuccessful attempt"
+            sleep $ATTEMPT_TIMEOUT
+        fi
+    done
+}
+
+AWS_TOKEN=$(get_token)
+AWS_INSTANCE_ID=$(get_instance_id)
+AWS_ASG_NAME=$(get_asg_name)
+
+# ensure packages are installed
+apt-get install -y \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release \
+    apparmor \
+    jq \
+    btop \
+    grep \
+    procps \
+    locales
+
+# ensure env file exists
+if [ ! -f "$ENV_FILE_PATH" ]; then
+    for i in $(seq 1 $MAX_RETRY); do
+        aws --region ${AWS_DEFAULT_REGION} --output text secretsmanager get-secret-value --secret-id ${SECRET_NAME} --query SecretString >$ENV_FILE_PATH
+        result=$?
+        if [[ $result -eq 0 ]]; then
+            echo "get-secret-value successful attempt"
+            break
+        else
+            echo "get-secret-value unsuccessful attempt"
+            sleep $ATTEMPT_TIMEOUT
+        fi
+    done
+
+    if [[ $result -ne 0 ]]; then
+        echo "Cant get secret value from secrets manager"
+        abandon_lifecycle
+    fi
+
+    # set permissions
+    chown $DEFAULT_USER:$DEFAULT_USER $ENV_FILE_PATH
+    chmod 600 $ENV_FILE_PATH
+fi
+
+# ecr auth
+for i in $(seq 1 $MAX_RETRY); do
+    aws --region $AWS_ECR_REGION ecr get-login-password | sudo -u $DEFAULT_USER docker login --username AWS --password-stdin ${CONTAINER_IMAGE_URL}
+    result=$?
+    if [[ $result -eq 0 ]]; then
+        echo "ECR get-login-password successful attempt"
+        break
+    else
+        echo "ECR get-login-password unsuccessful attempt"
+        sleep $ATTEMPT_TIMEOUT
+    fi
+done
+
+if [[ $result -ne 0 ]]; then
+    echo "Cant login to ECR"
+    abandon_lifecycle
+fi
+
+# ensure compose file exists
+if [ ! -f "$COMPOSE_FILE_PATH" ]; then
+    # generate cpu hard limits for docker
+    DEFAULT_CPU_COUNT="16"
+    CPU_COUNT=$(grep -c ^processor /proc/cpuinfo || echo $DEFAULT_CPU_COUNT)
+
+    CPU_UTILIZATION_FACTOR="1.25"
+    DEFAULT_DOCKER_CPU_LIMIT="0"
+    DOCKER_CPU_LIMIT=$(jq -n $CPU_COUNT/$CPU_UTILIZATION_FACTOR | cut -c1-4 || echo "$DEFAULT_DOCKER_CPU_LIMIT")
+
+    # generate memory hard limits for docker
+    RESERVED_MEMORY="300"
+    DEFAULT_MEMORY_COUNT="$RESERVED_MEMORY"
+    MEMORY_COUNT=$(free -m | awk '/^Mem:/{print $2}' || echo "$DEFAULT_MEMORY_COUNT")
+
+    DEFAULT_DOCKER_MEMORY_LIMIT="0"
+    DOCKER_MEMORY_LIMIT="$(jq -n $MEMORY_COUNT-$RESERVED_MEMORY || echo "$DEFAULT_DOCKER_MEMORY_LIMIT")M"
+
+    # create compose file
+    ARCH=$(dpkg --print-architecture)
+    echo "services:
+    $DOCKER_SERVICE_NAME:
+        image: ${CONTAINER_IMAGE_URL}:${IMAGE_TAG}-$ARCH
+        deploy:
+            resources:
+                limits:
+                    cpus: '$DOCKER_CPU_LIMIT'
+                    memory: '$DOCKER_MEMORY_LIMIT'
+        restart: unless-stopped
+        network_mode: host
+        env_file:
+            - ./.env
+        logging:
+            driver: awslogs
+            options:
+                awslogs-region: ${AWS_DEFAULT_REGION}
+                awslogs-group: ${AWS_LOG_GROUP}
+                awslogs-datetime-format: '\\[%b %d, %Y %H:%M:%S\\]'
+        healthcheck:
+            test: wget --spider --no-verbose --tries=1 127.0.0.1:${APP_PORT}/health || exit 1
+            interval: 60s
+            timeout: 10s
+            retries: 2
+    " >$COMPOSE_FILE_PATH
+
+    # set permissions
+    chown $DEFAULT_USER:$DEFAULT_USER $COMPOSE_FILE_PATH
+    chmod 600 $COMPOSE_FILE_PATH
+fi
+
+# compose up
+sudo -u $DEFAULT_USER docker compose --file $COMPOSE_FILE_PATH up --detach
+
+complete_lifecycle
+
+echo "user_data bash run completed on $(date)"
+
+--//--

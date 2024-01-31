@@ -1,0 +1,5 @@
+region         = "us-east-1"
+bucket         = "tf-remote-state20230306132739905500000001"
+key            = "services/application/dev.tfstate"
+dynamodb_table = "tf-remote-state-lock"
+encrypt        = "1"

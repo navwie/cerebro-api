@@ -1,0 +1,92 @@
+services:
+  api_local:
+    build:
+      context: .
+      dockerfile: local.dockerfile
+    container_name: ${PROJECT_NAME}-api
+    profiles:
+      - local
+      - vagrant
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./cerebro:/var/www
+    ports:
+      - "0.0.0.0:${WEB_PORT}:${APP_PORT:-80}/tcp"
+    networks:
+      - app-network
+    depends_on:
+      - mysql
+    healthcheck:
+      test: wget --spider --no-verbose --tries=1 127.0.0.1:${APP_PORT:-80}/health || exit 1
+      interval: 60s
+      timeout: 10s
+      retries: 2
+
+  mysql:
+    image: mysql:latest
+    container_name: ${PROJECT_NAME}-mysql
+    command: --default-authentication-plugin=mysql_native_password --sql_mode=''
+    ports:
+      - "0.0.0.0:${MYSQL_PORT:-3306}:3306/tcp"
+    restart: unless-stopped
+    profiles:
+      - local
+    volumes:
+      - ./mysql_files:/var/lib/mysql
+      - ./mysql_init:/docker-entrypoint-initdb.d
+      - ./backup:/dump
+    env_file:
+      - .env
+    networks:
+      - app-network
+    healthcheck:
+      test: mysqladmin ping --silent -u root --password=${MYSQL_ROOT_PASSWORD} | grep -q "mysqld is alive"
+      interval: 60s
+      timeout: 10s
+      retries: 2
+      start_period: 30s
+
+  #MySQL Service
+  mysql_vagrant:
+    image: mysql:latest
+    container_name: ${PROJECT_NAME}-vagrant-mysql
+    command: --default-authentication-plugin=mysql_native_password --sql_mode=''
+    ports:
+      - "0.0.0.0:${MYSQL_PORT:-3306}:3306/tcp"
+    restart: unless-stopped
+    profiles:
+      - vagrant
+    volumes:
+      - vagrant-mysql:/var/lib/mysql
+      - ./mysql_init:/docker-entrypoint-initdb.d
+      - ./backup:/dump
+    env_file:
+      - .env
+    networks:
+      - app-network
+    healthcheck:
+      test: mysqladmin ping --silent -u root --password=${MYSQL_ROOT_PASSWORD} | grep -q "mysqld is alive"
+      interval: 60s
+      timeout: 10s
+      retries: 2
+      start_period: 30s
+
+  selenium:
+    image: "selenium/standalone-chrome"
+    container_name: ${PROJECT_NAME}-selenium
+    profiles:
+      - local
+      - external
+    volumes:
+      - "/dev/shm:/dev/shm"
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  vagrant-mysql:

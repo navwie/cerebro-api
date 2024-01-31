@@ -1,0 +1,67 @@
+name: Build AMI
+run-name: Build AMI
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Debug mode
+        type: boolean
+        default: false
+      pipeline_name:
+        description: AMI builder pipline name
+        type: choice
+        options: 
+          - debian12
+
+env:
+  ACTIONS_REPOSITORY: "cerebro-CICD"
+
+jobs:
+  init:
+    runs-on: [self-hosted]
+    timeout-minutes: 5
+    name: Initialize Build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+
+      - name: Short Sha
+        id: short-sha
+        run: echo "short-sha=${GITHUB_SHA:0:10}" >> $GITHUB_OUTPUT
+        shell: bash
+    outputs:
+      short-sha: ${{ steps.short-sha.outputs.short-sha }}
+
+  ami_build:
+    name: Initialize AMI build
+    runs-on: [self-hosted]
+    needs: [init]
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+      deployments: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+
+      - name: Checkout actions repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/${{ env.ACTIONS_REPOSITORY }}
+          token: ${{ secrets.GLOBAL_GITHUB_TOKEN }}
+          path: actions_repository
+          fetch-depth: 0
+
+      - name: AMI build
+        uses: ./actions_repository/actions/ami
+        with:
+          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          pipeline_name: "${{ inputs.pipeline_name }}"
+          debug_mode: "${{ inputs.mode }}"

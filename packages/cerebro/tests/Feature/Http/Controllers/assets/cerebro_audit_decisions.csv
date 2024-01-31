@@ -1,0 +1,17 @@
+id,date_start,date_end,log_id,referral_id,customer_id,reapply_id,decision_id,decision_status,decision_message,decision_price,decision_redirect,redirected,created_at,updated_at
+24,2022-07-27 13:03:23,2038-01-19 03:14:07,25,1,25,25,722,sold,ACCEPTED,3.65,https://dnmstats.com/personal/lead/sign/0,0,today,today
+25,2022-07-27 13:03:23,2038-01-19 03:14:07,98,7,26,26,941,error,ERROR,0.00,"",1,today,today
+26,2022-07-27 13:03:23,2038-01-19 03:14:07,69,2,27,27,128,error,ERROR,0.00,"",1,yesterday,yesterday
+27,2022-07-27 13:03:23,2038-01-19 03:14:07,70,9,28,28,50,sold,ACCEPTED,3.44,https://dnmstats.com/personal/lead/sign/0,0,yesterday,yesterday
+28,2022-07-27 13:03:23,2038-01-19 03:14:07,75,4,29,29,456,error,ERROR,0.00,"",0,this_week,this_week
+29,2022-07-27 13:03:23,2038-01-19 03:14:07,78,4,30,30,607,reject,REJECTED,0.00,"",0,this_week,this_week
+30,2022-07-27 13:03:23,2038-01-19 03:14:07,79,7,31,31,508,error,ERROR,0.00,"",0,last_week,last_week
+31,2022-07-27 13:03:23,2038-01-19 03:14:07,79,8,32,32,608,reject,REJECTED,0.00,"",0,last_week,last_week
+32,2022-07-27 13:03:23,2038-01-19 03:14:07,17,2,33,33,272,reject,REJECTED,0.00,"",0,this_month,this_month
+33,2022-07-27 13:03:23,2038-01-19 03:14:07,97,3,34,34,130,error,ERROR,0.00,"",1,this_month,this_month
+34,2022-07-27 13:03:23,2038-01-19 03:14:07,15,8,35,35,369,sold,ACCEPTED,3.03,https://dnmstats.com/personal/lead/sign/0,1,last_month,last_month
+35,2022-07-27 13:03:23,2038-01-19 03:14:07,46,5,36,36,300,sold,ACCEPTED,3.50,https://dnmstats.com/personal/lead/sign/0,0,last_month,last_month
+36,2022-07-27 13:03:23,2038-01-19 03:14:07,53,3,37,37,58,reject,REJECTED,0.00,"",0,this_year,this_year
+37,2022-07-27 13:03:23,2038-01-19 03:14:07,4,9,38,38,349,sold,ACCEPTED,2.77,https://dnmstats.com/personal/lead/sign/0,1,this_year,this_year
+39,2022-07-27 13:03:23,2038-01-19 03:14:07,61,4,40,40,181,sold,ACCEPTED,9.68,https://dnmstats.com/personal/lead/sign/0,0,last_year,last_year
+40,2022-07-27 13:03:23,2038-01-19 03:14:07,57,9,41,41,108,error,ERROR,0.00,"",0,last_year,last_year

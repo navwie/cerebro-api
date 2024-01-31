@@ -1,0 +1,20 @@
+
+body::-webkit-scrollbar {
+    width: 0px;
+}
+
+body {
+    scrollbar-width: none;
+}
+
+body {
+    overflow-y: scroll;
+}
+
+.header-section {
+    position: relative !important;
+}
+
+html body #app main {
+    padding-top: 0 !important;
+}
